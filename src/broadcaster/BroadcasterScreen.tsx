@@ -15,7 +15,7 @@ type Status = 'starting-camera' | 'ready' | 'permission-denied' | 'error';
 type ViewerConn = 'connecting' | 'connected' | 'disconnected';
 type Viewer = { id: string; status: ViewerConn; joinedAt: number };
 
-export function BroadcasterScreen() {
+export function BroadcasterScreen({ onChangeRole }: { onChangeRole: () => void }) {
   useKeepAwake();
   const [status, setStatus] = useState<Status>('starting-camera');
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
@@ -184,6 +184,11 @@ export function BroadcasterScreen() {
                 </View>
               ))}
             </ScrollView>
+
+            <Pressable style={styles.sheetAction} onPress={onChangeRole}>
+              <Ionicons name="swap-horizontal" size={20} color={theme.colors.textMuted} />
+              <Text style={styles.sheetActionText}>Trocar papel do aparelho</Text>
+            </Pressable>
 
             <Pressable style={styles.closeButton} onPress={() => setOptionsOpen(false)}>
               <Text style={styles.closeButtonText}>Fechar</Text>

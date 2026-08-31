@@ -10,7 +10,7 @@ import { theme } from '../shared/theme';
 type PairingPayload = { serverUrl: string; roomId: string; token: string };
 type Status = 'scanning' | 'permission-denied' | 'connecting' | 'connected' | 'ended' | 'invalid-qr' | 'join-error' | 'kicked';
 
-export function ViewerScreen() {
+export function ViewerScreen({ onChangeRole }: { onChangeRole: () => void }) {
   const [status, setStatus] = useState<Status>('scanning');
   const [hasCamPermission, setHasCamPermission] = useState<boolean | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
@@ -131,6 +131,9 @@ export function ViewerScreen() {
           <Ionicons name="qr-code-outline" size={22} color="#fff" />
           <Text style={styles.scanHeaderText}>Aponte para o QR code da câmera</Text>
         </View>
+        <Pressable style={styles.changeRoleButton} onPress={onChangeRole}>
+          <Ionicons name="swap-horizontal" size={20} color="#fff" />
+        </Pressable>
       </View>
     );
   }
@@ -146,6 +149,9 @@ export function ViewerScreen() {
           <Text style={styles.retryText}>Escanear novamente</Text>
         </Pressable>
       )}
+      <Pressable onPress={onChangeRole}>
+        <Text style={styles.changeRoleText}>Trocar papel do aparelho</Text>
+      </Pressable>
     </View>
   );
 }
@@ -196,7 +202,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 56,
     left: 16,
-    right: 16,
+    right: 64,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
@@ -206,6 +212,18 @@ const styles = StyleSheet.create({
     borderRadius: theme.radius.pill,
   },
   scanHeaderText: { color: '#fff', fontSize: 13, fontWeight: '600' },
+  changeRoleButton: {
+    position: 'absolute',
+    top: 56,
+    right: 16,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#00000099',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  changeRoleText: { color: theme.colors.textMuted, fontSize: 13, marginTop: 8, textDecorationLine: 'underline' },
   liveBadge: {
     position: 'absolute',
     top: 56,

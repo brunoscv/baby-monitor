@@ -20,5 +20,10 @@ export function useDeviceRole() {
     setRole(next);
   }
 
-  return { role, chooseRole };
+  async function resetRole() {
+    await AsyncStorage.removeItem(ROLE_KEY);
+    setRole(null);
+  }
+
+  return { role, chooseRole, resetRole };
 }
