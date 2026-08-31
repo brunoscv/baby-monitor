@@ -3,7 +3,7 @@ import { Server } from 'socket.io';
 
 const PORT = process.env.PORT || 3001;
 
-// roomId -> { token, broadcasterSocketId }
+// roomId -> { token, broadcasterSocketId, viewers: Map<socketId, { joinedAt }> }
 const rooms = new Map();
 
 const httpServer = createServer();
@@ -11,12 +11,15 @@ const io = new Server(httpServer, { cors: { origin: '*' } });
 
 io.on('connection', (socket) => {
   socket.on('create-room', ({ roomId, token }) => {
-    rooms.set(roomId, { token, broadcasterSocketId: socket.id });
+    rooms.set(roomId, { token, broadcasterSocketId: socket.id, viewers: new Map() });
     socket.join(roomId);
     socket.data.roomId = roomId;
     socket.data.role = 'broadcaster';
   });
 
+  // Fase 2: sala aceita múltiplos viewers (ex.: celular do casal). Cada viewer
+  // negocia sua própria RTCPeerConnection com o broadcaster, por isso todo
+  // sinal precisa ser roteado por targetId em vez de broadcast pra sala toda.
   socket.on('join-room', ({ roomId, token }) => {
     const room = rooms.get(roomId);
     if (!room || room.token !== token) {
@@ -26,30 +29,40 @@ io.on('connection', (socket) => {
     socket.join(roomId);
     socket.data.roomId = roomId;
     socket.data.role = 'viewer';
-    socket.to(roomId).emit('viewer-joined');
+    room.viewers.set(socket.id, { joinedAt: Date.now() });
+    io.to(room.broadcasterSocketId).emit('viewer-joined', { viewerId: socket.id });
   });
 
-  // A sala tem no máximo broadcaster + 1 viewer (fase 1), então só precisa
-  // repassar pro outro membro da sala — sem precisar rotear por socket id.
-  socket.on('webrtc-offer', (payload) => relay(socket, 'webrtc-offer', payload));
-  socket.on('webrtc-answer', (payload) => relay(socket, 'webrtc-answer', payload));
-  socket.on('ice-candidate', (payload) => relay(socket, 'ice-candidate', payload));
+  socket.on('webrtc-offer', ({ targetId, sdp }) => relayTo(socket, targetId, 'webrtc-offer', { sdp }));
+  socket.on('webrtc-answer', ({ targetId, sdp }) => relayTo(socket, targetId, 'webrtc-answer', { sdp }));
+  socket.on('ice-candidate', ({ targetId, candidate }) => relayTo(socket, targetId, 'ice-candidate', { candidate }));
+
+  socket.on('kick-viewer', ({ roomId, viewerId }) => {
+    const room = rooms.get(roomId);
+    if (!room || room.broadcasterSocketId !== socket.id) return;
+    room.viewers.delete(viewerId);
+    io.to(viewerId).emit('kicked');
+    io.sockets.sockets.get(viewerId)?.leave(roomId);
+  });
 
   socket.on('disconnect', () => {
     const { roomId, role } = socket.data;
     if (!roomId) return;
+    const room = rooms.get(roomId);
+    if (!room) return;
     if (role === 'broadcaster') {
       rooms.delete(roomId);
       socket.to(roomId).emit('broadcaster-left');
     } else {
-      socket.to(roomId).emit('viewer-left');
+      room.viewers.delete(socket.id);
+      io.to(room.broadcasterSocketId).emit('viewer-left', { viewerId: socket.id });
     }
   });
 });
 
-function relay(socket, event, payload) {
-  const { roomId } = socket.data;
-  if (roomId) socket.to(roomId).emit(event, payload);
+function relayTo(fromSocket, targetId, event, payload) {
+  if (!targetId) return;
+  io.to(targetId).emit(event, { ...payload, fromId: fromSocket.id });
 }
 
 httpServer.listen(PORT, () => console.log(`signaling server ouvindo em :${PORT}`));

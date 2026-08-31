@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { Camera, CameraView } from 'expo-camera';
 import { io, Socket } from 'socket.io-client';
 import { MediaStream, RTCPeerConnection, RTCView } from 'react-native-webrtc';
 import { rtcConfig } from '../shared/webrtcConfig';
+import { theme } from '../shared/theme';
 
 type PairingPayload = { serverUrl: string; roomId: string; token: string };
-type Status = 'scanning' | 'permission-denied' | 'connecting' | 'connected' | 'ended' | 'invalid-qr' | 'join-error';
+type Status = 'scanning' | 'permission-denied' | 'connecting' | 'connected' | 'ended' | 'invalid-qr' | 'join-error' | 'kicked';
 
 export function ViewerScreen() {
   const [status, setStatus] = useState<Status>('scanning');
@@ -14,6 +16,7 @@ export function ViewerScreen() {
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const socketRef = useRef<Socket | null>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
+  const broadcasterIdRef = useRef<string | null>(null);
   const scannedRef = useRef(false);
 
   useEffect(() => {
@@ -56,7 +59,8 @@ export function ViewerScreen() {
 
     socket.on('join-error', () => setStatus('join-error'));
 
-    socket.on('webrtc-offer', async ({ sdp }: { sdp: any }) => {
+    socket.on('webrtc-offer', async ({ sdp, fromId }: { sdp: any; fromId: string }) => {
+      broadcasterIdRef.current = fromId;
       const pc = new RTCPeerConnection(rtcConfig);
       pcRef.current = pc;
 
@@ -65,7 +69,7 @@ export function ViewerScreen() {
       });
       pc.addEventListener('icecandidate', (event: any) => {
         if (event.candidate) {
-          socket.emit('ice-candidate', { roomId: pairing.roomId, candidate: event.candidate });
+          socket.emit('ice-candidate', { targetId: fromId, candidate: event.candidate });
         }
       });
       pc.addEventListener('connectionstatechange', () => {
@@ -75,7 +79,7 @@ export function ViewerScreen() {
       await pc.setRemoteDescription(sdp);
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
-      socket.emit('webrtc-answer', { roomId: pairing.roomId, sdp: answer });
+      socket.emit('webrtc-answer', { targetId: fromId, sdp: answer });
     });
 
     socket.on('ice-candidate', async ({ candidate }: { candidate: any }) => {
@@ -88,27 +92,49 @@ export function ViewerScreen() {
       setRemoteStream(null);
       setStatus('ended');
     });
+
+    socket.on('kicked', () => {
+      pcRef.current?.close();
+      pcRef.current = null;
+      setRemoteStream(null);
+      setStatus('kicked');
+    });
   }
 
   if (status === 'connected' && remoteStream) {
-    return <RTCView streamURL={remoteStream.toURL()} style={StyleSheet.absoluteFill} objectFit="cover" />;
+    return (
+      <View style={styles.videoContainer}>
+        <RTCView streamURL={remoteStream.toURL()} style={StyleSheet.absoluteFill} objectFit="cover" />
+        <View style={styles.liveBadge}>
+          <View style={styles.liveDot} />
+          <Text style={styles.liveText}>AO VIVO</Text>
+        </View>
+      </View>
+    );
   }
 
   if (status === 'scanning' && hasCamPermission) {
     return (
-      <CameraView
-        style={StyleSheet.absoluteFill}
-        facing="back"
-        barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
-        onBarcodeScanned={handleScanned}
-      />
+      <View style={styles.container}>
+        <CameraView
+          style={StyleSheet.absoluteFill}
+          facing="back"
+          barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
+          onBarcodeScanned={handleScanned}
+        />
+        <View style={styles.scanHeader}>
+          <Ionicons name="qr-code-outline" size={22} color="#fff" />
+          <Text style={styles.scanHeaderText}>Aponte para o QR code da câmera</Text>
+        </View>
+      </View>
     );
   }
 
-  const canRetry = status === 'invalid-qr' || status === 'join-error' || status === 'ended';
+  const canRetry = status === 'invalid-qr' || status === 'join-error' || status === 'ended' || status === 'kicked';
 
   return (
     <View style={styles.container}>
+      <Ionicons name={statusIcon(status)} size={40} color={theme.colors.primaryLight} />
       <Text style={styles.status}>{statusLabel(status)}</Text>
       {canRetry && (
         <Pressable style={styles.retryButton} onPress={() => { scannedRef.current = false; setStatus('scanning'); }}>
@@ -119,6 +145,23 @@ export function ViewerScreen() {
   );
 }
 
+function statusIcon(status: Status): keyof typeof Ionicons.glyphMap {
+  switch (status) {
+    case 'permission-denied':
+      return 'lock-closed';
+    case 'connecting':
+      return 'sync';
+    case 'ended':
+    case 'kicked':
+      return 'videocam-off';
+    case 'invalid-qr':
+    case 'join-error':
+      return 'alert-circle';
+    default:
+      return 'hourglass';
+  }
+}
+
 function statusLabel(status: Status) {
   switch (status) {
     case 'permission-denied':
@@ -127,6 +170,8 @@ function statusLabel(status: Status) {
       return 'Conectando à câmera...';
     case 'ended':
       return 'A câmera encerrou a transmissão';
+    case 'kicked':
+      return 'O acesso a esta câmera foi removido';
     case 'invalid-qr':
       return 'QR code inválido, tente novamente';
     case 'join-error':
@@ -138,7 +183,36 @@ function statusLabel(status: Status) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#000', padding: 24, gap: 16 },
+  videoContainer: { flex: 1, backgroundColor: '#000' },
   status: { color: '#fff', fontSize: 16, textAlign: 'center' },
-  retryButton: { backgroundColor: '#2563eb', paddingVertical: 12, paddingHorizontal: 24, borderRadius: 10 },
+  retryButton: { backgroundColor: theme.colors.primary, paddingVertical: 12, paddingHorizontal: 24, borderRadius: theme.radius.md },
   retryText: { color: '#fff', fontSize: 15, fontWeight: '600' },
+  scanHeader: {
+    position: 'absolute',
+    top: 56,
+    left: 16,
+    right: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#00000099',
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: theme.radius.pill,
+  },
+  scanHeaderText: { color: '#fff', fontSize: 13, fontWeight: '600' },
+  liveBadge: {
+    position: 'absolute',
+    top: 56,
+    left: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#00000099',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: theme.radius.pill,
+  },
+  liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: theme.colors.danger },
+  liveText: { color: '#fff', fontSize: 12, fontWeight: '700', letterSpacing: 0.5 },
 });
