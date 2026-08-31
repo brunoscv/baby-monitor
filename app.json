@@ -40,7 +40,14 @@
           "microphonePermission": "Usado para transmitir áudio no modo Broadcaster."
         }
       ],
-      "expo-build-properties"
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "deploymentTarget": "15.1"
+          }
+        }
+      ]
     ]
   }
 }
