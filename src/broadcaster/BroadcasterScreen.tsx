@@ -57,11 +57,16 @@ export function BroadcasterScreen() {
   }, []);
 
   function startSignaling(stream: MediaStream) {
-    const socket = io(SIGNALING_SERVER_URL, { transports: ['websocket'] });
+    const socket = io(SIGNALING_SERVER_URL, { transports: ['websocket', 'polling'] });
     socketRef.current = socket;
 
     socket.on('connect', () => {
       socket.emit('create-room', pairing);
+    });
+
+    socket.on('connect_error', (err) => {
+      console.error('signaling connect_error', err.message);
+      setStatus('error');
     });
 
     socket.on('viewer-joined', async ({ viewerId }: { viewerId: string }) => {

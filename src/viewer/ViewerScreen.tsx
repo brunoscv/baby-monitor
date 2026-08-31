@@ -50,11 +50,16 @@ export function ViewerScreen() {
 
   function connect(pairing: PairingPayload) {
     setStatus('connecting');
-    const socket = io(pairing.serverUrl, { transports: ['websocket'] });
+    const socket = io(pairing.serverUrl, { transports: ['websocket', 'polling'] });
     socketRef.current = socket;
 
     socket.on('connect', () => {
       socket.emit('join-room', { roomId: pairing.roomId, token: pairing.token });
+    });
+
+    socket.on('connect_error', (err) => {
+      console.error('signaling connect_error', err.message);
+      setStatus('join-error');
     });
 
     socket.on('join-error', () => setStatus('join-error'));
