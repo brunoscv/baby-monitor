@@ -7,19 +7,40 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.brunocarvalho.babymonitor",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Usado para transmitir a câmera no modo Broadcaster.",
+        "NSMicrophoneUsageDescription": "Usado para transmitir áudio no modo Broadcaster."
+      }
     },
     "android": {
+      "package": "com.brunocarvalho.babymonitor",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "CAMERA",
+        "RECORD_AUDIO"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      "expo-camera",
+      [
+        "@config-plugins/react-native-webrtc",
+        {
+          "cameraPermission": "Usado para transmitir a câmera no modo Broadcaster.",
+          "microphonePermission": "Usado para transmitir áudio no modo Broadcaster."
+        }
+      ],
+      "expo-build-properties"
+    ]
   }
 }

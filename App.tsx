@@ -1,20 +1,29 @@
+import { ActivityIndicator, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View } from 'react-native';
+import { useDeviceRole } from './src/setup/useDeviceRole';
+import { SetupScreen } from './src/setup/SetupScreen';
+import { BroadcasterScreen } from './src/broadcaster/BroadcasterScreen';
+import { ViewerScreen } from './src/viewer/ViewerScreen';
 
 export default function App() {
-  return (
-    <View style={styles.container}>
-      <Text>Open up App.tsx to start working on your app!</Text>
-      <StatusBar style="auto" />
-    </View>
-  );
-}
+  const { role, chooseRole } = useDeviceRole();
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-});
+  return (
+    <>
+      <StatusBar style="light" />
+      {renderContent()}
+    </>
+  );
+
+  function renderContent() {
+    if (role === undefined) {
+      return (
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+          <ActivityIndicator />
+        </View>
+      );
+    }
+    if (role === null) return <SetupScreen onChoose={chooseRole} />;
+    return role === 'broadcaster' ? <BroadcasterScreen /> : <ViewerScreen />;
+  }
+}
