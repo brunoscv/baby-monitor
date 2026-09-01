@@ -35,7 +35,7 @@ export function SetupScreen({ currentRole, onChoose, knownCameras, onSelectCamer
 
   return (
     <View style={styles.screen}>
-      <GradientBackground style={styles.header}>
+      <GradientBackground from="#7fb2e0" to="#a9cfe9" angle="vertical" curvedBottom curveDepth={10} style={styles.header}>
         <Text style={styles.welcome}>👶 Bem-vindo</Text>
         <Text style={styles.title}>Baby Monitor{'\n'}Smart Câmera</Text>
         <Text style={styles.subtitle}>Configure como este aparelho vai ser usado</Text>
@@ -126,10 +126,18 @@ function dotStyle(online: CameraOnline) {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: theme.colors.background },
-  header: { paddingTop: 72, paddingBottom: 40, paddingHorizontal: 24, gap: 6 },
-  welcome: { fontSize: 16, color: '#dbe4ff' },
-  title: { fontSize: 30, fontWeight: '800', color: '#fff', lineHeight: 36 },
-  subtitle: { fontSize: 14, color: '#dbe4ff', marginTop: 6 },
+  header: {
+    paddingTop: 84,
+    paddingBottom: 50,
+    paddingHorizontal: 34,
+    //paddingLeft: 34,
+    gap: 6,
+    height: 250,
+    marginBottom: 40,
+  },
+  welcome: { fontSize: 14, fontWeight: '600', color: '#eaf3fc' },
+  title: { fontSize: 26, fontWeight: '800', color: '#fff', lineHeight: 32 },
+  subtitle: { fontSize: 13, color: '#eaf3fc', marginTop: 4 },
   content: { flex: 1, marginTop: -20 },
   contentContainer: { paddingHorizontal: 20, paddingBottom: 24, gap: 14 },
   card: {
