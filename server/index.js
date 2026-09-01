@@ -18,7 +18,10 @@ const httpServer = createServer((req, res) => {
 const io = new Server(httpServer, { cors: { origin: '*' } });
 
 io.on('connection', (socket) => {
+  console.log(`[conn] ${socket.id} de ${socket.handshake.address}`);
+
   socket.on('create-room', ({ roomId, token }) => {
+    console.log(`[create-room] room=${roomId} socket=${socket.id}`);
     rooms.set(roomId, { token, broadcasterSocketId: socket.id, viewers: new Map() });
     socket.join(roomId);
     socket.data.roomId = roomId;
@@ -30,10 +33,17 @@ io.on('connection', (socket) => {
   // sinal precisa ser roteado por targetId em vez de broadcast pra sala toda.
   socket.on('join-room', ({ roomId, token }) => {
     const room = rooms.get(roomId);
-    if (!room || room.token !== token) {
+    if (!room) {
+      console.log(`[join-room] FALHOU room=${roomId} nao existe (salas ativas: ${[...rooms.keys()].join(', ') || 'nenhuma'})`);
       socket.emit('join-error', { reason: 'invalid-room-or-token' });
       return;
     }
+    if (room.token !== token) {
+      console.log(`[join-room] FALHOU room=${roomId} token nao bate`);
+      socket.emit('join-error', { reason: 'invalid-room-or-token' });
+      return;
+    }
+    console.log(`[join-room] OK room=${roomId} socket=${socket.id}`);
     socket.join(roomId);
     socket.data.roomId = roomId;
     socket.data.role = 'viewer';

@@ -55,6 +55,9 @@
         {
           "ios": {
             "deploymentTarget": "15.1"
+          },
+          "android": {
+            "usesCleartextTraffic": true
           }
         }
       ]
