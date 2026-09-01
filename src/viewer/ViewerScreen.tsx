@@ -6,14 +6,18 @@ import { io, Socket } from 'socket.io-client';
 import { MediaStream, RTCPeerConnection, RTCView } from 'react-native-webrtc';
 import { rtcConfig } from '../shared/webrtcConfig';
 import { theme } from '../shared/theme';
+import type { Role } from '../setup/useDeviceRole';
+import { SetupScreen } from '../setup/SetupScreen';
+import { CameraEntry, getKnownCameras, KnownCamera, removeKnownCamera, saveKnownCamera } from './knownCameras';
 
 type PairingPayload = { serverUrl: string; roomId: string; token: string };
-type Status = 'scanning' | 'permission-denied' | 'connecting' | 'connected' | 'ended' | 'invalid-qr' | 'join-error' | 'kicked';
+type Status = 'home' | 'scanning' | 'permission-denied' | 'connecting' | 'connected' | 'ended' | 'invalid-qr' | 'join-error' | 'kicked';
 
-export function ViewerScreen({ onChangeRole }: { onChangeRole: () => void }) {
-  const [status, setStatus] = useState<Status>('scanning');
+export function ViewerScreen({ onChooseRole }: { onChooseRole: (role: Role) => void }) {
+  const [status, setStatus] = useState<Status>('home');
   const [hasCamPermission, setHasCamPermission] = useState<boolean | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  const [knownCameras, setKnownCameras] = useState<CameraEntry[]>([]);
   const socketRef = useRef<Socket | null>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const broadcasterIdRef = useRef<string | null>(null);
@@ -22,7 +26,6 @@ export function ViewerScreen({ onChangeRole }: { onChangeRole: () => void }) {
   useEffect(() => {
     Camera.requestCameraPermissionsAsync().then(({ status: permStatus }) => {
       setHasCamPermission(permStatus === 'granted');
-      if (permStatus !== 'granted') setStatus('permission-denied');
     });
 
     return () => {
@@ -30,6 +33,54 @@ export function ViewerScreen({ onChangeRole }: { onChangeRole: () => void }) {
       socketRef.current?.disconnect();
     };
   }, []);
+
+  useEffect(() => {
+    if (status !== 'home') return;
+    let cancelled = false;
+    getKnownCameras().then((cams) => {
+      if (cancelled) return;
+      setKnownCameras(cams.map((c) => ({ ...c, online: 'checking' })));
+      cams.forEach(checkCameraStatus);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [status]);
+
+  async function checkCameraStatus(cam: KnownCamera) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 3000);
+      const res = await fetch(`${cam.serverUrl}/rooms/${cam.roomId}/status`, { signal: controller.signal });
+      clearTimeout(timeout);
+      const data = await res.json();
+      setKnownCameras((prev) => prev.map((c) => (c.roomId === cam.roomId ? { ...c, online: !!data.online } : c)));
+    } catch {
+      setKnownCameras((prev) => prev.map((c) => (c.roomId === cam.roomId ? { ...c, online: false } : c)));
+    }
+  }
+
+  function goHome() {
+    pcRef.current?.close();
+    pcRef.current = null;
+    socketRef.current?.disconnect();
+    socketRef.current = null;
+    scannedRef.current = false;
+    setRemoteStream(null);
+    setStatus('home');
+  }
+
+  function startScanning() {
+    if (hasCamPermission) {
+      scannedRef.current = false;
+      setStatus('scanning');
+      return;
+    }
+    Camera.requestCameraPermissionsAsync().then(({ status: permStatus }) => {
+      setHasCamPermission(permStatus === 'granted');
+      setStatus(permStatus === 'granted' ? 'scanning' : 'permission-denied');
+    });
+  }
 
   function handleScanned({ data }: { data: string }) {
     if (scannedRef.current) return;
@@ -46,6 +97,16 @@ export function ViewerScreen({ onChangeRole }: { onChangeRole: () => void }) {
     }
 
     connect(pairing);
+  }
+
+  function connectToKnown(cam: KnownCamera) {
+    scannedRef.current = true;
+    connect(cam);
+  }
+
+  function removeCamera(roomId: string) {
+    removeKnownCamera(roomId);
+    setKnownCameras((prev) => prev.filter((c) => c.roomId !== roomId));
   }
 
   function connect(pairing: PairingPayload) {
@@ -78,7 +139,10 @@ export function ViewerScreen({ onChangeRole }: { onChangeRole: () => void }) {
         }
       });
       pc.addEventListener('connectionstatechange', () => {
-        if (pc.connectionState === 'connected') setStatus('connected');
+        if (pc.connectionState === 'connected') {
+          setStatus('connected');
+          saveKnownCamera({ roomId: pairing.roomId, token: pairing.token, serverUrl: pairing.serverUrl });
+        }
       });
 
       await pc.setRemoteDescription(sdp);
@@ -94,6 +158,7 @@ export function ViewerScreen({ onChangeRole }: { onChangeRole: () => void }) {
     socket.on('broadcaster-left', () => {
       pcRef.current?.close();
       pcRef.current = null;
+      socket.disconnect();
       setRemoteStream(null);
       setStatus('ended');
     });
@@ -101,6 +166,7 @@ export function ViewerScreen({ onChangeRole }: { onChangeRole: () => void }) {
     socket.on('kicked', () => {
       pcRef.current?.close();
       pcRef.current = null;
+      socket.disconnect();
       setRemoteStream(null);
       setStatus('kicked');
     });
@@ -114,7 +180,23 @@ export function ViewerScreen({ onChangeRole }: { onChangeRole: () => void }) {
           <View style={styles.liveDot} />
           <Text style={styles.liveText}>AO VIVO</Text>
         </View>
+        <Pressable style={styles.endButton} onPress={goHome}>
+          <Ionicons name="close" size={22} color="#fff" />
+        </Pressable>
       </View>
+    );
+  }
+
+  if (status === 'home') {
+    return (
+      <SetupScreen
+        currentRole="viewer"
+        onChoose={onChooseRole}
+        knownCameras={knownCameras}
+        onSelectCamera={connectToKnown}
+        onAddCamera={startScanning}
+        onRemoveCamera={removeCamera}
+      />
     );
   }
 
@@ -131,8 +213,8 @@ export function ViewerScreen({ onChangeRole }: { onChangeRole: () => void }) {
           <Ionicons name="qr-code-outline" size={22} color="#fff" />
           <Text style={styles.scanHeaderText}>Aponte para o QR code da câmera</Text>
         </View>
-        <Pressable style={styles.changeRoleButton} onPress={onChangeRole}>
-          <Ionicons name="swap-horizontal" size={20} color="#fff" />
+        <Pressable style={styles.backButton} onPress={goHome}>
+          <Ionicons name="arrow-back" size={20} color="#fff" />
         </Pressable>
       </View>
     );
@@ -145,12 +227,12 @@ export function ViewerScreen({ onChangeRole }: { onChangeRole: () => void }) {
       <Ionicons name={statusIcon(status)} size={40} color={theme.colors.primaryLight} />
       <Text style={styles.status}>{statusLabel(status)}</Text>
       {canRetry && (
-        <Pressable style={styles.retryButton} onPress={() => { scannedRef.current = false; setStatus('scanning'); }}>
+        <Pressable style={styles.retryButton} onPress={startScanning}>
           <Text style={styles.retryText}>Escanear novamente</Text>
         </Pressable>
       )}
-      <Pressable onPress={onChangeRole}>
-        <Text style={styles.changeRoleText}>Trocar papel do aparelho</Text>
+      <Pressable onPress={goHome}>
+        <Text style={styles.changeRoleText}>Voltar para câmeras</Text>
       </Pressable>
     </View>
   );
@@ -212,7 +294,19 @@ const styles = StyleSheet.create({
     borderRadius: theme.radius.pill,
   },
   scanHeaderText: { color: '#fff', fontSize: 13, fontWeight: '600' },
-  changeRoleButton: {
+  backButton: {
+    position: 'absolute',
+    top: 56,
+    left: 16,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#00000099',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  changeRoleText: { color: theme.colors.textMuted, fontSize: 13, marginTop: 8, textDecorationLine: 'underline' },
+  endButton: {
     position: 'absolute',
     top: 56,
     right: 16,
@@ -223,7 +317,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  changeRoleText: { color: theme.colors.textMuted, fontSize: 13, marginTop: 8, textDecorationLine: 'underline' },
   liveBadge: {
     position: 'absolute',
     top: 56,

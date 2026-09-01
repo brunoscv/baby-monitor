@@ -6,7 +6,7 @@ import { BroadcasterScreen } from './src/broadcaster/BroadcasterScreen';
 import { ViewerScreen } from './src/viewer/ViewerScreen';
 
 export default function App() {
-  const { role, chooseRole, resetRole } = useDeviceRole();
+  const { role, chooseRole } = useDeviceRole();
 
   return (
     <>
@@ -25,9 +25,9 @@ export default function App() {
     }
     if (role === null) return <SetupScreen onChoose={chooseRole} />;
     return role === 'broadcaster' ? (
-      <BroadcasterScreen onChangeRole={resetRole} />
+      <BroadcasterScreen onChangeRole={() => chooseRole('viewer')} />
     ) : (
-      <ViewerScreen onChangeRole={resetRole} />
+      <ViewerScreen onChooseRole={chooseRole} />
     );
   }
 }

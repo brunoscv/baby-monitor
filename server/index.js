@@ -6,7 +6,15 @@ const PORT = process.env.PORT || 3001;
 // roomId -> { token, broadcasterSocketId, viewers: Map<socketId, { joinedAt }> }
 const rooms = new Map();
 
-const httpServer = createServer();
+// endpoint leve pra tela "câmeras recentes" do viewer checar se uma sala segue
+// online sem precisar abrir socket + WebRTC só pra descobrir isso.
+const httpServer = createServer((req, res) => {
+  const match = req.method === 'GET' && req.url.match(/^\/rooms\/([^/?]+)\/status/);
+  if (match) {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ online: rooms.has(match[1]) }));
+  }
+});
 const io = new Server(httpServer, { cors: { origin: '*' } });
 
 io.on('connection', (socket) => {
