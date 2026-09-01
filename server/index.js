@@ -18,11 +18,14 @@ const httpServer = createServer((req, res) => {
 const io = new Server(httpServer, { cors: { origin: '*' } });
 
 io.on('connection', (socket) => {
+  console.log(`[connect] socket ${socket.id} de ${socket.handshake.address}`);
+
   socket.on('create-room', ({ roomId, token }) => {
     rooms.set(roomId, { token, broadcasterSocketId: socket.id, viewers: new Map() });
     socket.join(roomId);
     socket.data.roomId = roomId;
     socket.data.role = 'broadcaster';
+    console.log(`[create-room] roomId=${roomId} broadcaster=${socket.id}`);
   });
 
   // Fase 2: sala aceita múltiplos viewers (ex.: celular do casal). Cada viewer
@@ -30,7 +33,13 @@ io.on('connection', (socket) => {
   // sinal precisa ser roteado por targetId em vez de broadcast pra sala toda.
   socket.on('join-room', ({ roomId, token }) => {
     const room = rooms.get(roomId);
-    if (!room || room.token !== token) {
+    if (!room) {
+      console.log(`[join-room] FALHOU roomId=${roomId} — sala não existe (salas ativas: ${[...rooms.keys()].join(', ') || 'nenhuma'})`);
+      socket.emit('join-error', { reason: 'invalid-room-or-token' });
+      return;
+    }
+    if (room.token !== token) {
+      console.log(`[join-room] FALHOU roomId=${roomId} — token não bate`);
       socket.emit('join-error', { reason: 'invalid-room-or-token' });
       return;
     }
@@ -38,6 +47,7 @@ io.on('connection', (socket) => {
     socket.data.roomId = roomId;
     socket.data.role = 'viewer';
     room.viewers.set(socket.id, { joinedAt: Date.now() });
+    console.log(`[join-room] OK roomId=${roomId} viewer=${socket.id}`);
     io.to(room.broadcasterSocketId).emit('viewer-joined', { viewerId: socket.id });
   });
 
@@ -53,7 +63,8 @@ io.on('connection', (socket) => {
     io.sockets.sockets.get(viewerId)?.leave(roomId);
   });
 
-  socket.on('disconnect', () => {
+  socket.on('disconnect', (reason) => {
+    console.log(`[disconnect] socket ${socket.id} role=${socket.data.role || '?'} reason=${reason}`);
     const { roomId, role } = socket.data;
     if (!roomId) return;
     const room = rooms.get(roomId);
