@@ -1,4 +1,4 @@
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { Role } from './useDeviceRole';
 import type { CameraEntry, CameraOnline, KnownCamera } from '../viewer/knownCameras';
@@ -18,6 +18,20 @@ type Props = {
 
 export function SetupScreen({ currentRole, onChoose, knownCameras, onSelectCamera, onAddCamera, onRemoveCamera }: Props) {
   const gridData: GridItem[] = knownCameras ? [...knownCameras, { roomId: '__add__' }] : [];
+
+  function notifyOffline() {
+    Alert.alert(
+      'Câmera indisponível',
+      'Essa câmera está offline ou o código de acesso dela mudou. Toque e segure pra remover, ou escaneie um QR code novo.'
+    );
+  }
+
+  function confirmRemove(roomId: string) {
+    Alert.alert('Remover câmera?', `Remove "Câmera ${roomId.slice(0, 4)}" da lista. Você pode escaneá-la de novo depois.`, [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: 'Remover', style: 'destructive', onPress: () => onRemoveCamera?.(roomId) },
+    ]);
+  }
 
   return (
     <View style={styles.screen}>
@@ -72,8 +86,8 @@ export function SetupScreen({ currentRole, onChoose, knownCameras, onSelectCamer
                   <Pressable
                     key={item.roomId}
                     style={styles.gridTile}
-                    onLongPress={() => onRemoveCamera?.(item.roomId)}
-                    onPress={() => item.online === true && onSelectCamera?.(item)}
+                    onLongPress={() => confirmRemove(item.roomId)}
+                    onPress={() => (item.online === true ? onSelectCamera?.(item) : notifyOffline())}
                   >
                     <View style={[styles.gridDot, dotStyle(item.online)]} />
                     <Ionicons

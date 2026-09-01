@@ -1,15 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Camera } from 'expo-camera';
 import { useKeepAwake } from 'expo-keep-awake';
-import * as Crypto from 'expo-crypto';
 import QRCode from 'react-native-qrcode-svg';
 import { io, Socket } from 'socket.io-client';
 import { mediaDevices, MediaStream, RTCPeerConnection, RTCView } from 'react-native-webrtc';
 import { SIGNALING_SERVER_URL } from '../shared/config';
 import { mediaConstraints, rtcConfig } from '../shared/webrtcConfig';
 import { theme } from '../shared/theme';
+import { getOrCreatePairing, Pairing, regeneratePairing } from './pairing';
 
 type Status = 'starting-camera' | 'ready' | 'permission-denied' | 'error';
 type ViewerConn = 'connecting' | 'connected' | 'disconnected';
@@ -19,7 +19,7 @@ export function BroadcasterScreen({ onChangeRole }: { onChangeRole: () => void }
   useKeepAwake();
   const [status, setStatus] = useState<Status>('starting-camera');
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
-  const [pairing] = useState(() => ({ roomId: Crypto.randomUUID(), token: Crypto.randomUUID() }));
+  const [pairing, setPairing] = useState<Pairing | null>(null);
   const [viewers, setViewers] = useState<Viewer[]>([]);
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [showQr, setShowQr] = useState(false);
@@ -28,6 +28,8 @@ export function BroadcasterScreen({ onChangeRole }: { onChangeRole: () => void }
   const streamRef = useRef<MediaStream | null>(null);
 
   useEffect(() => {
+    getOrCreatePairing().then(setPairing);
+
     (async () => {
       const cam = await Camera.requestCameraPermissionsAsync();
       const mic = await Camera.requestMicrophonePermissionsAsync();
@@ -41,7 +43,6 @@ export function BroadcasterScreen({ onChangeRole }: { onChangeRole: () => void }
         streamRef.current = stream;
         setLocalStream(stream);
         setStatus('ready');
-        startSignaling(stream);
       } catch (err) {
         console.error('getUserMedia falhou', err);
         setStatus('error');
@@ -49,14 +50,22 @@ export function BroadcasterScreen({ onChangeRole }: { onChangeRole: () => void }
     })();
 
     return () => {
-      pcsRef.current.forEach((pc) => pc.close());
-      pcsRef.current.clear();
-      socketRef.current?.disconnect();
       streamRef.current?.getTracks().forEach((track) => track.stop());
     };
   }, []);
 
-  function startSignaling(stream: MediaStream) {
+  useEffect(() => {
+    if (!localStream || !pairing) return;
+    const socket = startSignaling(localStream, pairing);
+    return () => {
+      pcsRef.current.forEach((pc) => pc.close());
+      pcsRef.current.clear();
+      socket.disconnect();
+      setViewers([]);
+    };
+  }, [localStream, pairing]);
+
+  function startSignaling(stream: MediaStream, pairing: Pairing) {
     const socket = io(SIGNALING_SERVER_URL, { transports: ['websocket', 'polling'] });
     socketRef.current = socket;
 
@@ -106,6 +115,8 @@ export function BroadcasterScreen({ onChangeRole }: { onChangeRole: () => void }
       pcsRef.current.delete(viewerId);
       setViewers((prev) => prev.filter((v) => v.id !== viewerId));
     });
+
+    return socket;
   }
 
   function updateViewerStatus(id: string, viewerStatus: ViewerConn) {
@@ -113,17 +124,35 @@ export function BroadcasterScreen({ onChangeRole }: { onChangeRole: () => void }
   }
 
   function removeViewer(id: string) {
+    if (!pairing) return;
     socketRef.current?.emit('kick-viewer', { roomId: pairing.roomId, viewerId: id });
     pcsRef.current.get(id)?.close();
     pcsRef.current.delete(id);
     setViewers((prev) => prev.filter((v) => v.id !== id));
   }
 
-  const pairingPayload = JSON.stringify({
-    serverUrl: SIGNALING_SERVER_URL,
-    roomId: pairing.roomId,
-    token: pairing.token,
-  });
+  function confirmRegenerate() {
+    Alert.alert(
+      'Gerar novo código?',
+      'Isso desconecta quem estiver assistindo agora. Todas as câmeras salvas nos visualizadores com o código antigo vão parar de funcionar — vai ser preciso escanear o QR code novo.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Gerar novo',
+          style: 'destructive',
+          onPress: async () => {
+            const fresh = await regeneratePairing();
+            setShowQr(true);
+            setPairing(fresh);
+          },
+        },
+      ]
+    );
+  }
+
+  const pairingPayload = pairing
+    ? JSON.stringify({ serverUrl: SIGNALING_SERVER_URL, roomId: pairing.roomId, token: pairing.token })
+    : '';
 
   const connectedCount = viewers.filter((v) => v.status === 'connected').length;
 
@@ -161,7 +190,7 @@ export function BroadcasterScreen({ onChangeRole }: { onChangeRole: () => void }
               <Ionicons name={showQr ? 'chevron-up' : 'chevron-down'} size={18} color={theme.colors.textMuted} />
             </Pressable>
 
-            {showQr && (
+            {showQr && pairingPayload && (
               <View style={styles.qrCard}>
                 <QRCode value={pairingPayload} size={200} />
                 <Text style={styles.qrHint}>Escaneie com o app no celular do visualizador (ex.: o da sua esposa) para liberar o acesso à câmera.</Text>
@@ -184,6 +213,11 @@ export function BroadcasterScreen({ onChangeRole }: { onChangeRole: () => void }
                 </View>
               ))}
             </ScrollView>
+
+            <Pressable style={styles.sheetAction} onPress={confirmRegenerate}>
+              <Ionicons name="refresh" size={20} color={theme.colors.danger} />
+              <Text style={[styles.sheetActionText, { color: theme.colors.danger }]}>Gerar novo código (revoga o atual)</Text>
+            </Pressable>
 
             <Pressable style={styles.sheetAction} onPress={onChangeRole}>
               <Ionicons name="swap-horizontal" size={20} color={theme.colors.textMuted} />
